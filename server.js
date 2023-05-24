@@ -17,6 +17,7 @@ export default function () {
 
     routes() {
       this.namespace = "api";
+      this.timing = 1500;
 
       this.get("/todos", (schema) => {
         return {
@@ -50,7 +51,7 @@ export default function () {
         }
 
         return new Response(200, {}, todo);
-      }, { timing: 2000 });
+      });
 
       this.put("/todos/:id", (schema, request) => {
         const todo = JSON.parse(request.requestBody);

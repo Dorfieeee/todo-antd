@@ -27,10 +27,8 @@ function App() {
   const [formLoading, setFormLoading] = useState(false);
   const [formFields, setFormFields] = useState(null);
   const [formName, setFormName] = useState("create");
-  const [action, setAction] = useState({
-    id: null,
-    state: null,
-  });
+  // map confirmed buttons, the key is todo's id, the value is whether its being deleted or not
+  const [confirmedBtns, setConfirmedBtns] = useState(new Map());
 
   const visibleTodos =
     searchText === ""
@@ -124,37 +122,33 @@ function App() {
   }
 
   function handleDeleteClick(id) {
-    const { state, id: actionId } = action;
-
-    if (state === null || actionId !== id) {
-      setAction({
-        id: id,
-        state: TO_BE_CONFIRMED,
-      });
-    } else if (state === TO_BE_CONFIRMED && actionId === id) {
-      deleteTodo();
+    if (confirmedBtns.has(id)) {
+      setConfirmedBtns(map => new Map(map).set(id, true));
+      deleteTodo(id);
+    } else {
+      setConfirmedBtns(map => new Map(map).set(id, false));
     }
   }
 
-  function resetAction() {
-    setAction({ id: null, state: null });
-  }
-
-  function deleteTodo() {
-    const { id } = action;
-
-    setAction((prev) => ({
-      ...prev,
-      state: AWAITING_RESPONSE,
-    }));
-
-    fetch("/api/todos/" + id, {
+  async function deleteTodo(id) {
+    const res = await fetch("/api/todos/" + id, {
       method: "DELETE",
-    }).then((res) => {
-      if (!res.ok) return;
-      resetAction();
-      setTodos(todos.filter((todo) => todo.id !== id));
     });
+
+    if (!res.ok) {
+      setConfirmedBtns(map => new Map(map).set(id, false))
+      return false
+    }
+
+    setConfirmedBtns(map => {
+      map = new Map(map)
+      map.delete(id);
+      return map;
+    });
+
+    setTodos(todos => todos.filter((todo) => todo.id !== id));
+
+    return true;
   }
 
   const columns = [
@@ -216,7 +210,7 @@ function App() {
         return (
           <>
             {tags.map((tag) => (
-              <Tag key={tag + id}>{tag.toUpperCase()}</Tag>
+              <Tag key={tag + id} id={tag + id}>{tag.toUpperCase()}</Tag>
             ))}
           </>
         );
@@ -232,10 +226,8 @@ function App() {
     {
       title: "Actions",
       render: (_, { id }) => {
-        const isAwaitingResponse =
-          action.id === id && action.state === AWAITING_RESPONSE;
-        const isToBeConfirmed =
-          action.id === id && action.state === TO_BE_CONFIRMED;
+        const isAwaitingResponse = confirmedBtns.has(id) && confirmedBtns.get(id);
+        const isToBeConfirmed = confirmedBtns.has(id) && !confirmedBtns.get(id);
 
         return (
           <Space direction="horizontal">
@@ -250,7 +242,7 @@ function App() {
                 onClick={() => handleDeleteClick(id)}
                 icon={<DeleteOutlined />}
                 loading={isAwaitingResponse}
-                danger={isAwaitingResponse || isToBeConfirmed}
+                danger={isToBeConfirmed}
               ></Button>
             </Tooltip>
           </Space>
