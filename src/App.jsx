@@ -11,10 +11,12 @@ import {
   DatePicker,
   Mentions,
   Radio,
+  Layout,
 } from "antd";
-import { EditOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
+const { Header, Footer, Sider, Content } = Layout;
 
 function App() {
   const [todos, setTodos] = useState([]);
@@ -26,6 +28,14 @@ function App() {
   const [formName, setFormName] = useState("create");
   // map confirmed buttons, the key is todo's id, the value is whether its being deleted or not
   const [confirmedBtns, setConfirmedBtns] = useState(new Map());
+  const [deletingMany, setDeletingMany] = useState(false);
+
+  const statusToTagColor = {
+    "Open": "geekblue",    
+    "Working": "purple",    
+    "Done": "green",    
+    "Overdue": "red",    
+  }
 
   const visibleTodos =
     searchText === ""
@@ -151,6 +161,40 @@ function App() {
     return true;
   }
 
+  async function handleDeleteMany() {
+    setDeletingMany(true);
+
+    const todosToDelete = new Map([...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted));
+    const deletePromises = [...todosToDelete]    
+    .map(([id]) => new Promise(async (resolve, reject) => {
+      const res = await fetch("/api/todos/" + id, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        resolve(true);
+      } else {
+        reject(new Error(`DELETE of todo with id #${id} failed.`));
+      }
+    }));
+
+    todosToDelete.forEach((_, id) => todosToDelete.set(id, true));
+    setConfirmedBtns(new Map(todosToDelete));
+
+    try {
+      await Promise.all(deletePromises);
+      setConfirmedBtns(new Map());
+      setDeletingMany(false);
+      setTodos(todos => todos.filter(({ id }) => !todosToDelete.has(id)))
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
+  function handleDeselectConfirmed() {
+    setConfirmedBtns(new Map());
+  }
+
   const columns = [
     {
       title: "Timestamp created",
@@ -224,6 +268,13 @@ function App() {
       key: "status",
       filters: statusFilters,
       onFilter: (value, { status }) => status === value,
+      render: (_, { status }) => {
+        return (
+          <Tag color={statusToTagColor[status]}>
+            {status}
+          </Tag>
+        );
+      },
     },
     {
       title: "Actions",
@@ -313,27 +364,72 @@ function App() {
     setFormLoading(false);
   };
 
+  const headerStyle = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    textAlign: 'center',
+    color: '#fff',
+    height: "4rem",
+    paddingInline: 50,
+    lineHeight: '64px',
+  };
+
+  const contentStyle = {
+    textAlign: 'center',
+    minHeight: 120,
+    lineHeight: '120px',
+    paddingInline: 50,
+    color: '#fff',
+  };
+
   return (
-    <>
-      <Space.Compact block size="middle">
+    <Layout>
+      <Header style={headerStyle}>
         <Search
           placeholder="input search text"
           onSearch={setSearchText}
           onChange={({ target }) => target.value === "" && setSearchText("")}
           style={{
-            width: 300,
+            width: 400,
           }}
         />
-        <Button
-          type="default"
-          icon={<PlusOutlined />}
-          size="middle"
-          onClick={handleCreateClick}
-        >
-          Create
-        </Button>
-      </Space.Compact>
-      <Table columns={columns} dataSource={visibleTodos} />
+        <Space>
+          <Button
+            type="default"
+            icon={<PlusOutlined />}
+            size="middle"
+            onClick={handleCreateClick}
+          >
+            Create
+          </Button>
+          {confirmedBtns.size ? (
+            <Button
+            type="primary"
+            icon={<DeleteOutlined />}
+            size="middle"
+            onClick={handleDeleteMany}
+            loading={deletingMany}
+            danger
+          >
+            Delete selected
+          </Button>
+          ) : <></>}
+          {confirmedBtns.size ? (
+            <Button
+            type="primary"
+            icon={<MinusOutlined />}
+            size="middle"
+            onClick={handleDeselectConfirmed}
+          >
+            Cancel selection
+          </Button>
+          ) : <></>}
+        </Space>
+      </Header>
+      <Content style={contentStyle}>
+        <Table columns={columns} dataSource={visibleTodos} rowKey={(record) => record.id} />
+      </Content>
       <Modal
         open={modalOpened}
         onCancel={handleModalCancel}
@@ -434,7 +530,7 @@ function App() {
           </Form>
         </Space>
       </Modal>
-    </>
+    </Layout>
   );
 }
 
