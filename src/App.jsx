@@ -16,9 +16,6 @@ import { EditOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
 
-const TO_BE_CONFIRMED = 0;
-const AWAITING_RESPONSE = 1;
-
 function App() {
   const [todos, setTodos] = useState([]);
   const [searchText, setSearchText] = useState("");
@@ -100,19 +97,22 @@ function App() {
   function handleEditClick(id) {
     const fieldData = [];
 
-    let todo = todos.find(todo => todo.id === id);
+    let todo = todos.find((todo) => todo.id === id);
 
     todo = {
       ...todo,
       remember: true,
-      dateRange: [dayjs(todo.timeStamp), todo.dueDate !== "" ? dayjs(todo.dueDate) : null],
-      tags: todo.tags.map(tag => "#" + tag).join(" ") ?? "",
-    }
+      dateRange: [
+        dayjs(todo.timeStamp),
+        todo.dueDate !== "" ? dayjs(todo.dueDate) : null,
+      ],
+      tags: todo.tags.map((tag) => "#" + tag).join(" ") ?? "",
+    };
 
     for (const key in todo) {
       fieldData.push({
         name: [key],
-        value: todo[key]
+        value: todo[key],
       });
     }
 
@@ -123,10 +123,10 @@ function App() {
 
   function handleDeleteClick(id) {
     if (confirmedBtns.has(id)) {
-      setConfirmedBtns(map => new Map(map).set(id, true));
+      setConfirmedBtns((map) => new Map(map).set(id, true));
       deleteTodo(id);
     } else {
-      setConfirmedBtns(map => new Map(map).set(id, false));
+      setConfirmedBtns((map) => new Map(map).set(id, false));
     }
   }
 
@@ -136,17 +136,17 @@ function App() {
     });
 
     if (!res.ok) {
-      setConfirmedBtns(map => new Map(map).set(id, false))
-      return false
+      setConfirmedBtns((map) => new Map(map).set(id, false));
+      return false;
     }
 
-    setConfirmedBtns(map => {
-      map = new Map(map)
+    setConfirmedBtns((map) => {
+      map = new Map(map);
       map.delete(id);
       return map;
     });
 
-    setTodos(todos => todos.filter((todo) => todo.id !== id));
+    setTodos((todos) => todos.filter((todo) => todo.id !== id));
 
     return true;
   }
@@ -210,7 +210,9 @@ function App() {
         return (
           <>
             {tags.map((tag) => (
-              <Tag key={tag + id} id={tag + id}>{tag.toUpperCase()}</Tag>
+              <Tag key={tag + id} id={tag + id}>
+                {tag.toUpperCase()}
+              </Tag>
             ))}
           </>
         );
@@ -226,7 +228,8 @@ function App() {
     {
       title: "Actions",
       render: (_, { id }) => {
-        const isAwaitingResponse = confirmedBtns.has(id) && confirmedBtns.get(id);
+        const isAwaitingResponse =
+          confirmedBtns.has(id) && confirmedBtns.get(id);
         const isToBeConfirmed = confirmedBtns.has(id) && !confirmedBtns.get(id);
 
         return (
@@ -269,6 +272,7 @@ function App() {
         .split("#")
         .filter((v) => !!v)
         .map((tag) => tag.trim()) ?? [];
+    todo.tags = [...new Set(todo.tags)];
     todo.timeStamp = dateRange[0].format("YYYY-MM-DD");
     todo.dueDate = dateRange[1]?.format("YYYY-MM-DD") ?? "";
 
@@ -291,22 +295,17 @@ function App() {
 
       if (method === "POST") {
         form.resetFields();
-        setTodos((prevTodos) => ([
-          ...prevTodos,
-          newTodo,
-        ]));
+        setTodos((prevTodos) => [...prevTodos, newTodo]);
       } else {
-        setTodos(prevTodos => {
+        setTodos((prevTodos) => {
           const updatedTodos = [...prevTodos];
-          const updatingTodo = updatedTodos.find(t => t.id === todo.id);
+          const updatingTodo = updatedTodos.find((t) => t.id === todo.id);
           for (const key in newTodo) {
             updatingTodo[key] = newTodo[key];
           }
           return updatedTodos;
-        })
+        });
       }
-
-
     } else {
       console.log(`Error while ${method} ${path}.`);
     }
@@ -365,19 +364,36 @@ function App() {
             onFinish={onFinish}
           >
             <Form.Item
-              label="Task"
+              label="Title"
               name="title"
               rules={[
                 {
                   required: true,
                   message: "Please input todo's title!",
                 },
+                {
+                  max: 100,
+                  message: "Maximum title length is 100 characters.",
+                },
               ]}
             >
               <Input />
             </Form.Item>
 
-            <Form.Item label="Description" name="description">
+            <Form.Item
+              label="Description"
+              name="description"
+              rules={[
+                {
+                  required: true,
+                  message: "Please provide some description.",
+                },
+                {
+                  max: 1000,
+                  message: "Maximum description lenght is 1000 characters.",
+                },
+              ]}
+            >
               <Input />
             </Form.Item>
 
@@ -397,12 +413,16 @@ function App() {
               />
             </Form.Item>
 
-            <Form.Item label="Status" name="status">
+            <Form.Item label="Status" name="status" required={true}>
               <Radio.Group
-                options={["Open", "Working"]}
-                // onChange={({ target: { value } }) => setStatusOption(value)}
+                options={
+                  formName === "create"
+                    ? ["Open", "Working"]
+                    : ["Open", "Working", "Done", "Overdue"]
+                }
                 optionType="button"
                 buttonStyle="solid"
+                size="small"
               />
             </Form.Item>
 
