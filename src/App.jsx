@@ -421,6 +421,7 @@ function App() {
             icon={<MinusOutlined />}
             size="middle"
             onClick={handleDeselectConfirmed}
+            disabled={deletingMany}
           >
             Cancel selection
           </Button>
