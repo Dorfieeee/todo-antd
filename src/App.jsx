@@ -17,6 +17,8 @@ import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined } from "@ant-
 import dayjs from "dayjs";
 const { Search } = Input;
 const { Header, Footer, Sider, Content } = Layout;
+import { db } from "./firestore";
+import { collection, addDoc, getDocs, getDoc, deleteDoc, doc, updateDoc } from "firebase/firestore"
 
 function App() {
   const [todos, setTodos] = useState([]);
@@ -29,6 +31,7 @@ function App() {
   // map confirmed buttons, the key is todo's id, the value is whether its being deleted or not
   const [confirmedBtns, setConfirmedBtns] = useState(new Map());
   const [deletingMany, setDeletingMany] = useState(false);
+  const todoRef = collection(db, "todo");
 
   const statusToTagColor = {
     "Open": "geekblue",    
@@ -69,11 +72,10 @@ function App() {
         });
 
   useEffect(() => {
-    fetch("/api/todos")
-      .then((res) => res.json())
-      .then((data) => {
-        setTodos(data.todos);
-      });
+    getDocs(collection(db, "todo")).then(data => {
+      const todos = data.docs.map(todo => ({ ...todo.data(), id: todo.id }) );
+      setTodos(todos);
+    });
   }, []);
 
   // We know there are going to be only these 4 statuses
@@ -141,13 +143,12 @@ function App() {
   }
 
   async function deleteTodo(id) {
-    const res = await fetch("/api/todos/" + id, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) {
+    try {
+      await deleteDoc(doc(db, "todo", id));
+    } catch (error) {
       setConfirmedBtns((map) => new Map(map).set(id, false));
       return false;
+      
     }
 
     setConfirmedBtns((map) => {
@@ -167,13 +168,10 @@ function App() {
     const todosToDelete = new Map([...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted));
     const deletePromises = [...todosToDelete]    
     .map(([id]) => new Promise(async (resolve, reject) => {
-      const res = await fetch("/api/todos/" + id, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
+      try {
+        await deleteDoc(doc(db, "todo", id));
         resolve(true);
-      } else {
+      } catch (error) {
         reject(new Error(`DELETE of todo with id #${id} failed.`));
       }
     }));
@@ -305,11 +303,35 @@ function App() {
     },
   ];
 
-  /* 
-  TODO:
-  Create new two functions, createTodo and updateTodo so when
-  onFinish => if formName = create -> createTodo(), if formName = update -> updateTodo()  
-  */
+  const createTodo = async (todo) => {
+    try {
+      const newTodoRef = await addDoc(todoRef, todo);
+      const newTodoDoc = await getDoc(newTodoRef);
+      const newTodo = { ...newTodoDoc.data(), id: newTodoDoc.id };
+      form.resetFields();
+      setTodos((prevTodos) => [...prevTodos, newTodo]);
+    } catch (error) {
+      throw new Error("createTodo: " + error);
+    }
+  }
+
+  const updateTodo = async (todo, id) => {
+    try {
+      await updateDoc(doc(db, "todo", id), todo);
+      todo.id = id;
+      setTodos((prevTodos) => {
+        const updatedTodos = [...prevTodos];
+        const updatingTodo = updatedTodos.find((t) => t.id === id);
+        for (const key in updatingTodo) {
+          updatingTodo[key] = todo[key];
+        }
+        return updatedTodos;
+      });
+    } catch (error) {
+      throw new Error("updateTodo: " + error);
+    }
+  }
+
   const onFinish = async ({ title, description, tags, status, dateRange }) => {
     const todo = {
       title,
@@ -327,38 +349,18 @@ function App() {
     todo.timeStamp = dateRange[0].format("YYYY-MM-DD");
     todo.dueDate = dateRange[1]?.format("YYYY-MM-DD") ?? "";
 
-    todo.id = form.getFieldValue("id") ?? "";
-
-    const method = formName === "create" ? "POST" : "PUT";
-    const path = formName === "create" ? "/api/todos" : "/api/todos/" + todo.id;
-
-    const options = {
-      method: method,
-      body: JSON.stringify(todo),
-    };
-
     setFormLoading(true);
 
-    const response = await fetch(path, options);
-
-    if (response.ok) {
-      const newTodo = await response.json();
-
-      if (method === "POST") {
-        form.resetFields();
-        setTodos((prevTodos) => [...prevTodos, newTodo]);
-      } else {
-        setTodos((prevTodos) => {
-          const updatedTodos = [...prevTodos];
-          const updatingTodo = updatedTodos.find((t) => t.id === todo.id);
-          for (const key in newTodo) {
-            updatingTodo[key] = newTodo[key];
-          }
-          return updatedTodos;
-        });
+    try {
+      if (formName === "create") {
+        await createTodo(todo)
+      }      
+      else if (formName === "update") {
+        const id = form.getFieldValue("id");
+        await updateTodo(todo, id);
       }
-    } else {
-      console.log(`Error while ${method} ${path}.`);
+    } catch (error) {
+      console.log(error)
     }
 
     setFormLoading(false);
