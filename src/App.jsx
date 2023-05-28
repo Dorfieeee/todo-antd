@@ -14,13 +14,27 @@ import {
   Layout,
   Avatar,
 } from "antd";
-import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined, UserOutlined } from "@ant-design/icons";
+import {
+  EditOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  MinusOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
 const { Header, Footer, Sider, Content } = Layout;
 import { db } from "./firebase/db";
 import { useAuth } from "./firebase/auth";
-import { collection, addDoc, getDocs, getDoc, deleteDoc, doc, updateDoc } from "firebase/firestore"
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  deleteDoc,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 
 function App() {
   const [user, authenticateUser] = useAuth();
@@ -36,14 +50,12 @@ function App() {
   const [deletingMany, setDeletingMany] = useState(false);
   const todoRef = collection(db, "todo");
 
-  console.log(user);
-
   const statusToTagColor = {
-    "Open": "geekblue",    
-    "Working": "purple",    
-    "Done": "green",    
-    "Overdue": "red",    
-  }
+    Open: "geekblue",
+    Working: "purple",
+    Done: "green",
+    Overdue: "red",
+  };
 
   const visibleTodos =
     searchText === ""
@@ -77,8 +89,8 @@ function App() {
         });
 
   useEffect(() => {
-    getDocs(collection(db, "todo")).then(data => {
-      const todos = data.docs.map(todo => ({ ...todo.data(), id: todo.id }) );
+    getDocs(collection(db, "todo")).then((data) => {
+      const todos = data.docs.map((todo) => ({ ...todo.data(), id: todo.id }));
       setTodos(todos);
     });
   }, []);
@@ -86,7 +98,7 @@ function App() {
   const toFilterValue = (value) => ({
     text: value[0].toUpperCase() + value.slice(1),
     value: value,
-  })
+  });
 
   // We know there are going to be only these 4 statuses
   // There is no need to get them dynamicaly from todos
@@ -156,7 +168,6 @@ function App() {
     } catch (error) {
       setConfirmedBtns((map) => new Map(map).set(id, false));
       return false;
-      
     }
 
     setConfirmedBtns((map) => {
@@ -173,16 +184,20 @@ function App() {
   async function handleDeleteMany() {
     setDeletingMany(true);
 
-    const todosToDelete = new Map([...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted));
-    const deletePromises = [...todosToDelete]    
-    .map(([id]) => new Promise(async (resolve, reject) => {
-      try {
-        await deleteDoc(doc(db, "todo", id));
-        resolve(true);
-      } catch (error) {
-        reject(new Error(`DELETE of todo with id #${id} failed.`));
-      }
-    }));
+    const todosToDelete = new Map(
+      [...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted)
+    );
+    const deletePromises = [...todosToDelete].map(
+      ([id]) =>
+        new Promise(async (resolve, reject) => {
+          try {
+            await deleteDoc(doc(db, "todo", id));
+            resolve(true);
+          } catch (error) {
+            reject(new Error(`DELETE of todo with id #${id} failed.`));
+          }
+        })
+    );
 
     todosToDelete.forEach((_, id) => todosToDelete.set(id, true));
     setConfirmedBtns(new Map(todosToDelete));
@@ -191,9 +206,9 @@ function App() {
       await Promise.all(deletePromises);
       setConfirmedBtns(new Map());
       setDeletingMany(false);
-      setTodos(todos => todos.filter(({ id }) => !todosToDelete.has(id)))
+      setTodos((todos) => todos.filter(({ id }) => !todosToDelete.has(id)));
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
   }
 
@@ -275,11 +290,7 @@ function App() {
       filters: statusFilters,
       onFilter: (value, { status }) => status === value,
       render: (_, { status }) => {
-        return (
-          <Tag color={statusToTagColor[status]}>
-            {status}
-          </Tag>
-        );
+        return <Tag color={statusToTagColor[status]}>{status}</Tag>;
       },
     },
     {
@@ -321,7 +332,7 @@ function App() {
     } catch (error) {
       throw new Error("createTodo: " + error);
     }
-  }
+  };
 
   const updateTodo = async (todo, id) => {
     try {
@@ -338,7 +349,7 @@ function App() {
     } catch (error) {
       throw new Error("updateTodo: " + error);
     }
-  }
+  };
 
   const onFinish = async ({ title, description, tags, status, dateRange }) => {
     const todo = {
@@ -361,14 +372,13 @@ function App() {
 
     try {
       if (formName === "create") {
-        await createTodo(todo)
-      }      
-      else if (formName === "update") {
+        await createTodo(todo);
+      } else if (formName === "update") {
         const id = form.getFieldValue("id");
         await updateTodo(todo, id);
       }
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
 
     setFormLoading(false);
@@ -378,19 +388,19 @@ function App() {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    textAlign: 'center',
-    color: '#fff',
+    textAlign: "center",
+    color: "#fff",
     height: "4rem",
     paddingInline: 50,
-    lineHeight: '64px',
+    lineHeight: "64px",
   };
 
   const contentStyle = {
-    textAlign: 'center',
+    textAlign: "center",
     minHeight: 120,
-    lineHeight: '120px',
+    lineHeight: "120px",
     paddingInline: 50,
-    color: '#fff',
+    color: "#fff",
   };
 
   return (
@@ -415,32 +425,51 @@ function App() {
           </Button>
           {confirmedBtns.size ? (
             <Button
-            type="primary"
-            icon={<DeleteOutlined />}
-            size="middle"
-            onClick={handleDeleteMany}
-            loading={deletingMany}
-            danger
-          >
-            Delete selected
-          </Button>
-          ) : <></>}
+              type="primary"
+              icon={<DeleteOutlined />}
+              size="middle"
+              onClick={handleDeleteMany}
+              loading={deletingMany}
+              danger
+            >
+              Delete selected
+            </Button>
+          ) : (
+            <></>
+          )}
           {confirmedBtns.size ? (
             <Button
-            type="primary"
-            icon={<MinusOutlined />}
-            size="middle"
-            onClick={handleDeselectConfirmed}
-            disabled={deletingMany}
-          >
-            Cancel selection
-          </Button>
-          ) : <></>}
-          <Avatar shape="square" icon={!!user ? <img src={user.photoURL} alt="avatar" /> : <UserOutlined />} onClick={authenticateUser} style={{cursor: "pointer"}} />
+              type="primary"
+              icon={<MinusOutlined />}
+              size="middle"
+              onClick={handleDeselectConfirmed}
+              disabled={deletingMany}
+            >
+              Cancel selection
+            </Button>
+          ) : (
+            <></>
+          )}
+          <Avatar
+            shape="square"
+            icon={
+              !!user ? (
+                <img src={user.photoURL} alt="avatar" />
+              ) : (
+                <UserOutlined />
+              )
+            }
+            onClick={authenticateUser}
+            style={{ cursor: "pointer" }}
+          />
         </Space>
       </Header>
       <Content style={contentStyle}>
-        <Table columns={columns} dataSource={visibleTodos} rowKey={(record) => record.id} />
+        <Table
+          columns={columns}
+          dataSource={visibleTodos}
+          rowKey={(record) => record.id}
+        />
       </Content>
       <Modal
         open={modalOpened}
