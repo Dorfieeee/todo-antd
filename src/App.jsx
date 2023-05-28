@@ -12,15 +12,18 @@ import {
   Mentions,
   Radio,
   Layout,
+  Avatar,
 } from "antd";
-import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined } from "@ant-design/icons";
+import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined, UserOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
 const { Header, Footer, Sider, Content } = Layout;
-import { db } from "./firestore";
+import { db } from "./firebase/db";
+import { useAuth } from "./firebase/auth";
 import { collection, addDoc, getDocs, getDoc, deleteDoc, doc, updateDoc } from "firebase/firestore"
 
 function App() {
+  const [user, authenticateUser] = useAuth();
   const [todos, setTodos] = useState([]);
   const [searchText, setSearchText] = useState("");
   const [modalOpened, setModalOpened] = useState(false);
@@ -32,6 +35,8 @@ function App() {
   const [confirmedBtns, setConfirmedBtns] = useState(new Map());
   const [deletingMany, setDeletingMany] = useState(false);
   const todoRef = collection(db, "todo");
+
+  console.log(user);
 
   const statusToTagColor = {
     "Open": "geekblue",    
@@ -78,9 +83,15 @@ function App() {
     });
   }, []);
 
+  const toFilterValue = (value) => ({
+    text: value[0].toUpperCase() + value.slice(1),
+    value: value,
+  })
+
   // We know there are going to be only these 4 statuses
   // There is no need to get them dynamicaly from todos
-  const statusFilters = ["Open", "Working", "Overdue", "Done"];
+  const statuses = ["Open", "Working", "Overdue", "Done"];
+  const statusFilters = statuses.map(toFilterValue);
   // Tags are unknown in advance so it needs to be extracted from todos
   const tagsFilters = todos
     ? Array.from(
@@ -90,10 +101,7 @@ function App() {
           }
           return uniqueTags;
         }, new Set())
-      ).map((tag) => ({
-        text: tag[0].toUpperCase() + tag.slice(1),
-        value: tag,
-      }))
+      ).map(toFilterValue)
     : [];
 
   function handleCreateClick() {
@@ -428,6 +436,7 @@ function App() {
             Cancel selection
           </Button>
           ) : <></>}
+          <Avatar shape="square" icon={!!user ? <img src={user.photoURL} alt="avatar" /> : <UserOutlined />} onClick={authenticateUser} style={{cursor: "pointer"}} />
         </Space>
       </Header>
       <Content style={contentStyle}>
