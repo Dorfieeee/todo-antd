@@ -1,6 +1,8 @@
-import { getAuth, signInWithPopup, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, signInWithPopup, GoogleAuthProvider, setPersistence, browserLocalPersistence } from "firebase/auth";
 import { useEffect, useState } from "react";
 import { app } from "./app";
+import { db } from "./db";
+import { addDoc, doc, getDoc, updateDoc } from "firebase/firestore";
 
 const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
@@ -10,7 +12,7 @@ export const useAuth = () => {
 
     const authenticateUser = () => {
         signInWithPopup(auth, provider)
-        .then((result) => {
+        .then(async (result) => {
         // This gives you a Google Access Token. You can use it to access the Google API.
         const credential = GoogleAuthProvider.credentialFromResult(result);
         const token = credential.accessToken;
@@ -18,8 +20,18 @@ export const useAuth = () => {
         const user = result.user;
         // IdP data available using getAdditionalUserInfo(result)
         // ...
+        
+        const ref = doc(db, "users", user.uid);
+        const userDoc = await getDoc(ref);
+        const userData = { name: user.displayName, photoURL: user.photoURL };
+        if (userDoc.exists()) {
+            updateDoc(ref, userData);
+        } else {
+            addDoc(ref, userData)
+        } 
         setUser(user);
-        }).catch((error) => {
+        })
+        .catch((error) => {
         // Handle Errors here.
         const errorCode = error.code;
         const errorMessage = error.message;

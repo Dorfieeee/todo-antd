@@ -13,6 +13,7 @@ import {
   Radio,
   Layout,
   Avatar,
+  Popconfirm,
 } from "antd";
 import {
   EditOutlined,
@@ -38,7 +39,9 @@ import {
 
 function App() {
   const [user, authenticateUser] = useAuth();
+  const isLoggedIn = !!user;
   const [todos, setTodos] = useState([]);
+  const [users, setUsers] = useState({});
   const [searchText, setSearchText] = useState("");
   const [modalOpened, setModalOpened] = useState(false);
   const [form] = Form.useForm();
@@ -92,6 +95,13 @@ function App() {
     getDocs(collection(db, "todo")).then((data) => {
       const todos = data.docs.map((todo) => ({ ...todo.data(), id: todo.id }));
       setTodos(todos);
+    });
+  }, []);
+
+  useEffect(() => {
+    getDocs(collection(db, "users")).then((data) => {
+      const users = data.docs.reduce((obj, user) => { obj[user.id] = user.data(); return obj }, {});
+      setUsers(users);
     });
   }, []);
 
@@ -228,6 +238,31 @@ function App() {
         new Date(timeStampA) - new Date(timeStampB),
     },
     {
+      title: "Author",
+      dataIndex: "author",
+      key: "author",
+      render: (_, { author }) => {
+        // TODO
+        // need to store users in another document
+        // there is not way to access user data from its UID
+        return (
+          <Tooltip title={users[author]?.name ?? "Anonymous"} placement="top">
+            <Avatar
+              shape="circle"
+              icon={
+                !!users[author]?.photoURL ? (
+                  <img src={users[author].photoURL} alt="avatar" />
+                ) : (
+                  <UserOutlined />
+                )
+              }
+              style={{ backgroundColor: '#fff', color: '#001529' }}
+            />
+          </Tooltip>
+        )
+      }
+    },
+    {
       title: "Task",
       dataIndex: "title",
       key: "title",
@@ -295,10 +330,13 @@ function App() {
     },
     {
       title: "Actions",
-      render: (_, { id }) => {
+      render: (_, { id, author }) => {
         const isAwaitingResponse =
           confirmedBtns.has(id) && confirmedBtns.get(id);
         const isToBeConfirmed = confirmedBtns.has(id) && !confirmedBtns.get(id);
+        const userIsAuthor = isLoggedIn && user.uid === author;
+
+        if (!userIsAuthor) return (<></>);
 
         return (
           <Space direction="horizontal">
@@ -306,6 +344,7 @@ function App() {
               <Button
                 onClick={() => handleEditClick(id)}
                 icon={<EditOutlined />}
+                disabled={!userIsAuthor}
               ></Button>
             </Tooltip>
             <Tooltip title="Delete" mouseEnterDelay={0.5}>
@@ -314,6 +353,7 @@ function App() {
                 icon={<DeleteOutlined />}
                 loading={isAwaitingResponse}
                 danger={isToBeConfirmed}
+                disabled={!userIsAuthor}
               ></Button>
             </Tooltip>
           </Space>
@@ -352,6 +392,8 @@ function App() {
   };
 
   const onFinish = async ({ title, description, tags, status, dateRange }) => {
+    if (!isLoggedIn) return;
+
     const todo = {
       title,
       description,
@@ -367,6 +409,7 @@ function App() {
     todo.tags = [...new Set(todo.tags)];
     todo.timeStamp = dateRange[0].format("YYYY-MM-DD");
     todo.dueDate = dateRange[1]?.format("YYYY-MM-DD") ?? "";
+    todo.author = user.uid;
 
     setFormLoading(true);
 
@@ -406,23 +449,44 @@ function App() {
   return (
     <Layout>
       <Header style={headerStyle}>
+        <Space>
         <Search
           placeholder="input search text"
           onSearch={setSearchText}
           onChange={({ target }) => target.value === "" && setSearchText("")}
           style={{
             width: 400,
+            display: "block",
           }}
         />
+          {!isLoggedIn ? (
+            <Popconfirm
+              title="Create new todo"
+              description="You need to be loged in to create new todo. Do you want to log in?"
+              onConfirm={authenticateUser}
+              okText="Yes"
+              cancelText="No"
+            >
+              <Button
+                type="default"
+                icon={<PlusOutlined />}
+                size="middle"
+              >
+                Create
+              </Button>
+          </Popconfirm>
+          ) : (
+            <Button
+                type="default"
+                icon={<PlusOutlined />}
+                size="middle"
+                onClick={handleCreateClick}
+            >
+              Create
+            </Button>
+          )}
+        </Space>
         <Space>
-          <Button
-            type="default"
-            icon={<PlusOutlined />}
-            size="middle"
-            onClick={handleCreateClick}
-          >
-            Create
-          </Button>
           {confirmedBtns.size ? (
             <Button
               type="primary"
@@ -451,7 +515,7 @@ function App() {
             <></>
           )}
           <Avatar
-            shape="square"
+            shape="circle"
             icon={
               !!user ? (
                 <img src={user.photoURL} alt="avatar" />
@@ -460,7 +524,7 @@ function App() {
               )
             }
             onClick={authenticateUser}
-            style={{ cursor: "pointer" }}
+            style={{ cursor: "pointer", backgroundColor: '#fff', color: '#001529', display: "block" }}
           />
         </Space>
       </Header>
