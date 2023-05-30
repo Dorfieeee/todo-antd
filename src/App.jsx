@@ -72,6 +72,7 @@ function App() {
             "status",
             "description",
             "title",
+            "author",
           ];
           let hasMatch = false;
           // loop until match found or there is nothing left to check
@@ -83,6 +84,8 @@ function App() {
               hasMatch = propValue.some((value) =>
                 value.toLowerCase().startsWith(iSearchText)
               );
+            } else if (prop === "author") {
+              hasMatch = users[propValue].name.toLowerCase().includes(iSearchText);
             } else {
               hasMatch = propValue.toLowerCase().includes(iSearchText);
             }
@@ -96,14 +99,14 @@ function App() {
       const todos = data.docs.map((todo) => ({ ...todo.data(), id: todo.id }));
       setTodos(todos);
     });
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     getDocs(collection(db, "users")).then((data) => {
       const users = data.docs.reduce((obj, user) => { obj[user.id] = user.data(); return obj }, {});
       setUsers(users);
     });
-  }, []);
+  }, [user]);
 
   const toFilterValue = (value) => ({
     text: value[0].toUpperCase() + value.slice(1),
