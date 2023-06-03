@@ -4,7 +4,7 @@ import App from './App'
 
 import startServer from '../server'
 
-startServer();
+// startServer();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

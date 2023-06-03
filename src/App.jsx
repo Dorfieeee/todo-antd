@@ -1,25 +1,33 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { Button, Input, Space, Form, Layout, Avatar, Popconfirm } from "antd";
 import {
-  Button,
-  Table,
-  Tag,
-  Input,
-  Tooltip,
-  Space,
-  Modal,
-  Form,
-  DatePicker,
-  Mentions,
-  Radio,
-  Layout,
-} from "antd";
-import { EditOutlined, DeleteOutlined, PlusOutlined, MinusOutlined } from "@ant-design/icons";
+  DeleteOutlined,
+  PlusOutlined,
+  MinusOutlined,
+  UserOutlined,
+} from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
-const { Header, Footer, Sider, Content } = Layout;
+const { Header, Content } = Layout;
+import { db } from "./firebase/db";
+import { useAuth } from "./firebase/auth";
+import {
+  collection,
+  addDoc,
+  getDocs,
+  getDoc,
+  deleteDoc,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
+import TodoTable from "./components/TodoTable";
+import TodoModal from "./components/TodoModal";
 
 function App() {
+  const [user, authenticateUser] = useAuth();
+  const isLoggedIn = !!user;
   const [todos, setTodos] = useState([]);
+  const [users, setUsers] = useState({});
   const [searchText, setSearchText] = useState("");
   const [modalOpened, setModalOpened] = useState(false);
   const [form] = Form.useForm();
@@ -27,18 +35,12 @@ function App() {
   const [formFields, setFormFields] = useState(null);
   const [formName, setFormName] = useState("create");
   // map confirmed buttons, the key is todo's id, the value is whether its being deleted or not
-  const [confirmedBtns, setConfirmedBtns] = useState(new Map());
+  const [selectedTodos, setSelectedTodos] = useState(new Map());
   const [deletingMany, setDeletingMany] = useState(false);
+  const todoRef = collection(db, "todo");
 
-  const statusToTagColor = {
-    "Open": "geekblue",    
-    "Working": "purple",    
-    "Done": "green",    
-    "Overdue": "red",    
-  }
-
-  const visibleTodos =
-    searchText === ""
+  const visibleTodos = useMemo(() => {
+    return searchText === ""
       ? todos
       : todos.filter((todo) => {
           const iSearchText = searchText.toLowerCase();
@@ -49,6 +51,7 @@ function App() {
             "status",
             "description",
             "title",
+            "author",
           ];
           let hasMatch = false;
           // loop until match found or there is nothing left to check
@@ -60,6 +63,10 @@ function App() {
               hasMatch = propValue.some((value) =>
                 value.toLowerCase().startsWith(iSearchText)
               );
+            } else if (prop === "author") {
+              hasMatch = users[propValue].name
+                .toLowerCase()
+                .includes(iSearchText);
             } else {
               hasMatch = propValue.toLowerCase().includes(iSearchText);
             }
@@ -67,18 +74,30 @@ function App() {
 
           return hasMatch;
         });
+  }, [todos, searchText]);
 
   useEffect(() => {
-    fetch("/api/todos")
-      .then((res) => res.json())
-      .then((data) => {
-        setTodos(data.todos);
-      });
-  }, []);
+    getDocs(collection(db, "todo")).then((data) => {
+      const todos = data.docs.map((todo) => ({ ...todo.data(), id: todo.id }));
+      setTodos(todos);
+    });
+  }, [user]);
 
-  // We know there are going to be only these 4 statuses
-  // There is no need to get them dynamicaly from todos
-  const statusFilters = ["Open", "Working", "Overdue", "Done"];
+  useEffect(() => {
+    getDocs(collection(db, "users")).then((data) => {
+      const users = data.docs.reduce((obj, user) => {
+        obj[user.id] = user.data();
+        return obj;
+      }, {});
+      setUsers(users);
+    });
+  }, [user]);
+
+  const toFilterValue = (value) => ({
+    text: value[0].toUpperCase() + value.slice(1),
+    value: value,
+  });
+
   // Tags are unknown in advance so it needs to be extracted from todos
   const tagsFilters = todos
     ? Array.from(
@@ -88,10 +107,7 @@ function App() {
           }
           return uniqueTags;
         }, new Set())
-      ).map((tag) => ({
-        text: tag[0].toUpperCase() + tag.slice(1),
-        value: tag,
-      }))
+      ).map(toFilterValue)
     : [];
 
   function handleCreateClick() {
@@ -132,25 +148,23 @@ function App() {
   }
 
   function handleDeleteClick(id) {
-    if (confirmedBtns.has(id)) {
-      setConfirmedBtns((map) => new Map(map).set(id, true));
+    if (selectedTodos.has(id)) {
+      setSelectedTodos((map) => new Map(map).set(id, true));
       deleteTodo(id);
     } else {
-      setConfirmedBtns((map) => new Map(map).set(id, false));
+      setSelectedTodos((map) => new Map(map).set(id, false));
     }
   }
 
   async function deleteTodo(id) {
-    const res = await fetch("/api/todos/" + id, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) {
-      setConfirmedBtns((map) => new Map(map).set(id, false));
+    try {
+      await deleteDoc(doc(db, "todo", id));
+    } catch (error) {
+      setSelectedTodos((map) => new Map(map).set(id, false));
       return false;
     }
 
-    setConfirmedBtns((map) => {
+    setSelectedTodos((map) => {
       map = new Map(map);
       map.delete(id);
       return map;
@@ -164,153 +178,70 @@ function App() {
   async function handleDeleteMany() {
     setDeletingMany(true);
 
-    const todosToDelete = new Map([...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted));
-    const deletePromises = [...todosToDelete]    
-    .map(([id]) => new Promise(async (resolve, reject) => {
-      const res = await fetch("/api/todos/" + id, {
-        method: "DELETE",
-      });
-
-      if (res.ok) {
-        resolve(true);
-      } else {
-        reject(new Error(`DELETE of todo with id #${id} failed.`));
-      }
-    }));
+    const todosToDelete = new Map(
+      [...selectedTodos].filter(([_, beingDeleted]) => !beingDeleted)
+    );
+    const deletePromises = [...todosToDelete].map(
+      ([id]) =>
+        new Promise(async (resolve, reject) => {
+          try {
+            await deleteDoc(doc(db, "todo", id));
+            resolve(true);
+          } catch (error) {
+            reject(new Error(`DELETE of todo with id #${id} failed.`));
+          }
+        })
+    );
 
     todosToDelete.forEach((_, id) => todosToDelete.set(id, true));
-    setConfirmedBtns(new Map(todosToDelete));
+    setSelectedTodos(new Map(todosToDelete));
 
     try {
       await Promise.all(deletePromises);
-      setConfirmedBtns(new Map());
+      setSelectedTodos(new Map());
       setDeletingMany(false);
-      setTodos(todos => todos.filter(({ id }) => !todosToDelete.has(id)))
+      setTodos((todos) => todos.filter(({ id }) => !todosToDelete.has(id)));
     } catch (error) {
-      console.log(error)
+      console.log(error);
     }
   }
 
   function handleDeselectConfirmed() {
-    setConfirmedBtns(new Map());
+    setSelectedTodos(new Map());
   }
 
-  const columns = [
-    {
-      title: "Timestamp created",
-      dataIndex: "timeStamp",
-      key: "timeStamp",
-      // This is a use of Object destructuring with assigning
-      // new names(aliases) for the original property names
-      // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Destructuring_assignment#object_destructuring
-      sorter: ({ timeStamp: timeStampA }, { timeStamp: timeStampB }) =>
-        new Date(timeStampA) - new Date(timeStampB),
-    },
-    {
-      title: "Task",
-      dataIndex: "title",
-      key: "title",
-      sorter: ({ title: titleA }, { title: titleB }) => {
-        if (titleA === titleB) return 0;
-        return titleA > titleB ? 1 : -1;
-      },
-    },
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      sorter: ({ description: descA }, { description: descB }) => {
-        if (descA === descB) return 0;
-        return descA > descB ? 1 : -1;
-      },
-    },
-    {
-      title: "Due Date",
-      dataIndex: "dueDate",
-      key: "dueDate",
-      sorter: ({ dueDate: dueDateA }, { dueDate: dueDateB }, order) => {
-        // both empty
-        if ((dueDateA === dueDateB) === "") {
-          return 0;
-          // only first empty
-        } else if (dueDateA === "") {
-          return order === "ascend" ? 1 : -1;
-          // only second empty
-        } else if (dueDateB === "") {
-          return order === "ascend" ? -1 : 1;
-          // both have values
-        } else {
-          return new Date(dueDateA) - new Date(dueDateB);
+  const createTodo = async (todo) => {
+    try {
+      const newTodoRef = await addDoc(todoRef, todo);
+      const newTodoDoc = await getDoc(newTodoRef);
+      const newTodo = { ...newTodoDoc.data(), id: newTodoDoc.id };
+      form.resetFields();
+      setTodos((prevTodos) => [...prevTodos, newTodo]);
+    } catch (error) {
+      throw new Error("createTodo: " + error);
+    }
+  };
+
+  const updateTodo = async (todo, id) => {
+    try {
+      await updateDoc(doc(db, "todo", id), todo);
+      todo.id = id;
+      setTodos((prevTodos) => {
+        const updatedTodos = [...prevTodos];
+        const updatingTodo = updatedTodos.find((t) => t.id === id);
+        for (const key in updatingTodo) {
+          updatingTodo[key] = todo[key];
         }
-      },
-    },
-    {
-      title: "Tags",
-      dataIndex: "tags",
-      key: "tags",
-      filters: tagsFilters,
-      onFilter: (value, { tags }) => tags.includes(value),
-      render: (tags, { id }) => {
-        return (
-          <>
-            {tags.map((tag) => (
-              <Tag key={tag + id} id={tag + id}>
-                {tag.toUpperCase()}
-              </Tag>
-            ))}
-          </>
-        );
-      },
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      filters: statusFilters,
-      onFilter: (value, { status }) => status === value,
-      render: (_, { status }) => {
-        return (
-          <Tag color={statusToTagColor[status]}>
-            {status}
-          </Tag>
-        );
-      },
-    },
-    {
-      title: "Actions",
-      render: (_, { id }) => {
-        const isAwaitingResponse =
-          confirmedBtns.has(id) && confirmedBtns.get(id);
-        const isToBeConfirmed = confirmedBtns.has(id) && !confirmedBtns.get(id);
+        return updatedTodos;
+      });
+    } catch (error) {
+      throw new Error("updateTodo: " + error);
+    }
+  };
 
-        return (
-          <Space direction="horizontal">
-            <Tooltip title="Edit" mouseEnterDelay={0.5}>
-              <Button
-                onClick={() => handleEditClick(id)}
-                icon={<EditOutlined />}
-              ></Button>
-            </Tooltip>
-            <Tooltip title="Delete" mouseEnterDelay={0.5}>
-              <Button
-                onClick={() => handleDeleteClick(id)}
-                icon={<DeleteOutlined />}
-                loading={isAwaitingResponse}
-                danger={isToBeConfirmed}
-              ></Button>
-            </Tooltip>
-          </Space>
-        );
-      },
-    },
-  ];
-
-  /* 
-  TODO:
-  Create new two functions, createTodo and updateTodo so when
-  onFinish => if formName = create -> createTodo(), if formName = update -> updateTodo()  
-  */
   const onFinish = async ({ title, description, tags, status, dateRange }) => {
+    if (!isLoggedIn) return;
+
     const todo = {
       title,
       description,
@@ -326,39 +257,19 @@ function App() {
     todo.tags = [...new Set(todo.tags)];
     todo.timeStamp = dateRange[0].format("YYYY-MM-DD");
     todo.dueDate = dateRange[1]?.format("YYYY-MM-DD") ?? "";
-
-    todo.id = form.getFieldValue("id") ?? "";
-
-    const method = formName === "create" ? "POST" : "PUT";
-    const path = formName === "create" ? "/api/todos" : "/api/todos/" + todo.id;
-
-    const options = {
-      method: method,
-      body: JSON.stringify(todo),
-    };
+    todo.author = user.uid;
 
     setFormLoading(true);
 
-    const response = await fetch(path, options);
-
-    if (response.ok) {
-      const newTodo = await response.json();
-
-      if (method === "POST") {
-        form.resetFields();
-        setTodos((prevTodos) => [...prevTodos, newTodo]);
-      } else {
-        setTodos((prevTodos) => {
-          const updatedTodos = [...prevTodos];
-          const updatingTodo = updatedTodos.find((t) => t.id === todo.id);
-          for (const key in newTodo) {
-            updatingTodo[key] = newTodo[key];
-          }
-          return updatedTodos;
-        });
+    try {
+      if (formName === "create") {
+        await createTodo(todo);
+      } else if (formName === "update") {
+        const id = form.getFieldValue("id");
+        await updateTodo(todo, id);
       }
-    } else {
-      console.log(`Error while ${method} ${path}.`);
+    } catch (error) {
+      console.log(error);
     }
 
     setFormLoading(false);
@@ -368,168 +279,125 @@ function App() {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    textAlign: 'center',
-    color: '#fff',
+    textAlign: "center",
+    color: "#fff",
     height: "4rem",
     paddingInline: 50,
-    lineHeight: '64px',
+    lineHeight: "64px",
   };
 
   const contentStyle = {
-    textAlign: 'center',
+    textAlign: "center",
     minHeight: 120,
-    lineHeight: '120px',
+    lineHeight: "120px",
     paddingInline: 50,
-    color: '#fff',
+    color: "#fff",
   };
 
   return (
     <Layout>
       <Header style={headerStyle}>
-        <Search
-          placeholder="input search text"
-          onSearch={setSearchText}
-          onChange={({ target }) => target.value === "" && setSearchText("")}
-          style={{
-            width: 400,
-          }}
-        />
         <Space>
-          <Button
-            type="default"
-            icon={<PlusOutlined />}
-            size="middle"
-            onClick={handleCreateClick}
-          >
-            Create
-          </Button>
-          {confirmedBtns.size ? (
+          <Search
+            placeholder="input search text"
+            onSearch={setSearchText}
+            onChange={({ target }) => target.value === "" && setSearchText("")}
+            style={{
+              width: 400,
+              display: "block",
+            }}
+          />
+          {!isLoggedIn ? (
+            <Popconfirm
+              title="Create new todo"
+              description="You need to be loged in to create new todo. Do you want to log in?"
+              onConfirm={authenticateUser}
+              okText="Yes"
+              cancelText="No"
+            >
+              <Button type="default" icon={<PlusOutlined />} size="middle">
+                Create
+              </Button>
+            </Popconfirm>
+          ) : (
             <Button
-            type="primary"
-            icon={<DeleteOutlined />}
-            size="middle"
-            onClick={handleDeleteMany}
-            loading={deletingMany}
-            danger
-          >
-            Delete selected
-          </Button>
-          ) : <></>}
-          {confirmedBtns.size ? (
+              type="default"
+              icon={<PlusOutlined />}
+              size="middle"
+              onClick={handleCreateClick}
+            >
+              Create
+            </Button>
+          )}
+        </Space>
+        <Space>
+          {selectedTodos.size ? (
             <Button
-            type="primary"
-            icon={<MinusOutlined />}
-            size="middle"
-            onClick={handleDeselectConfirmed}
-          >
-            Cancel selection
-          </Button>
-          ) : <></>}
+              type="primary"
+              icon={<DeleteOutlined />}
+              size="middle"
+              onClick={handleDeleteMany}
+              loading={deletingMany}
+              danger
+            >
+              Delete selected
+            </Button>
+          ) : (
+            <></>
+          )}
+          {selectedTodos.size ? (
+            <Button
+              type="primary"
+              icon={<MinusOutlined />}
+              size="middle"
+              onClick={handleDeselectConfirmed}
+              disabled={deletingMany}
+            >
+              Cancel selection
+            </Button>
+          ) : (
+            <></>
+          )}
+          <Avatar
+            shape="circle"
+            icon={
+              !!user ? (
+                <img src={user.photoURL} alt="avatar" />
+              ) : (
+                <UserOutlined />
+              )
+            }
+            onClick={authenticateUser}
+            style={{
+              cursor: "pointer",
+              backgroundColor: "#fff",
+              color: "#001529",
+              display: "block",
+            }}
+          />
         </Space>
       </Header>
       <Content style={contentStyle}>
-        <Table columns={columns} dataSource={visibleTodos} rowKey={(record) => record.id} />
+        <TodoTable
+          todos={visibleTodos}
+          users={users}
+          loggedInUser={user}
+          selectedTodos={selectedTodos}
+          deleteTodo={handleDeleteClick}
+          editTodo={handleEditClick}
+        />
       </Content>
-      <Modal
-        open={modalOpened}
+      <TodoModal
+        type={formName}
+        title={`${formName} todo`.toUpperCase()}
+        isOpened={modalOpened}
         onCancel={handleModalCancel}
-        title="Create new todo"
-        footer={null}
-      >
-        <Space direction="vertical" align="center">
-          <Form
-            form={form}
-            fields={formFields}
-            disabled={formLoading}
-            initialValues={{
-              remember: true,
-              dateRange: [dayjs(), null],
-              status: "Open",
-            }}
-            name="create"
-            labelCol={{
-              span: 8,
-            }}
-            wrapperCol={{
-              span: 16,
-            }}
-            style={{
-              width: "100%",
-            }}
-            autoComplete="off"
-            onFinish={onFinish}
-          >
-            <Form.Item
-              label="Title"
-              name="title"
-              rules={[
-                {
-                  required: true,
-                  message: "Please input todo's title!",
-                },
-                {
-                  max: 100,
-                  message: "Maximum title length is 100 characters.",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-
-            <Form.Item
-              label="Description"
-              name="description"
-              rules={[
-                {
-                  required: true,
-                  message: "Please provide some description.",
-                },
-                {
-                  max: 1000,
-                  message: "Maximum description lenght is 1000 characters.",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-
-            <Form.Item label="Due Date" name="dateRange">
-              <DatePicker.RangePicker disabled={[true, false]} />
-            </Form.Item>
-
-            <Form.Item label="Tags" name="tags">
-              <Mentions
-                placeholder="input # to mention tag"
-                prefix={["#"]}
-                options={(tagsFilters || []).map(({ value }) => ({
-                  key: value,
-                  value,
-                  label: value,
-                }))}
-              />
-            </Form.Item>
-
-            <Form.Item label="Status" name="status" required={true}>
-              <Radio.Group
-                options={
-                  formName === "create"
-                    ? ["Open", "Working"]
-                    : ["Open", "Working", "Done", "Overdue"]
-                }
-                optionType="button"
-                buttonStyle="solid"
-                size="small"
-              />
-            </Form.Item>
-
-            <Form.Item wrapperCol={{ offset: 8, span: 16 }}>
-              <Button type="primary" htmlType="submit" loading={formLoading}>
-                {formName.toUpperCase()}
-              </Button>
-            </Form.Item>
-          </Form>
-        </Space>
-      </Modal>
+        onFinish={onFinish}
+        formRef={form}
+        fields={formFields}
+        isLoading={formLoading}
+        tags={tagsFilters}
+      />
     </Layout>
   );
 }
