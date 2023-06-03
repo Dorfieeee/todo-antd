@@ -1,22 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { Button, Input, Space, Form, Layout, Avatar, Popconfirm } from "antd";
 import {
-  Button,
-  Table,
-  Tag,
-  Input,
-  Tooltip,
-  Space,
-  Modal,
-  Form,
-  DatePicker,
-  Mentions,
-  Radio,
-  Layout,
-  Avatar,
-  Popconfirm,
-} from "antd";
-import {
-  EditOutlined,
   DeleteOutlined,
   PlusOutlined,
   MinusOutlined,
@@ -24,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import dayjs from "dayjs";
 const { Search } = Input;
-const { Header, Footer, Sider, Content } = Layout;
+const { Header, Content } = Layout;
 import { db } from "./firebase/db";
 import { useAuth } from "./firebase/auth";
 import {
@@ -36,6 +20,8 @@ import {
   doc,
   updateDoc,
 } from "firebase/firestore";
+import TodoTable from "./components/TodoTable";
+import TodoModal from "./components/TodoModal";
 
 function App() {
   const [user, authenticateUser] = useAuth();
@@ -49,19 +35,12 @@ function App() {
   const [formFields, setFormFields] = useState(null);
   const [formName, setFormName] = useState("create");
   // map confirmed buttons, the key is todo's id, the value is whether its being deleted or not
-  const [confirmedBtns, setConfirmedBtns] = useState(new Map());
+  const [selectedTodos, setSelectedTodos] = useState(new Map());
   const [deletingMany, setDeletingMany] = useState(false);
   const todoRef = collection(db, "todo");
 
-  const statusToTagColor = {
-    Open: "geekblue",
-    Working: "purple",
-    Done: "green",
-    Overdue: "red",
-  };
-
-  const visibleTodos =
-    searchText === ""
+  const visibleTodos = useMemo(() => {
+    return searchText === ""
       ? todos
       : todos.filter((todo) => {
           const iSearchText = searchText.toLowerCase();
@@ -85,7 +64,9 @@ function App() {
                 value.toLowerCase().startsWith(iSearchText)
               );
             } else if (prop === "author") {
-              hasMatch = users[propValue].name.toLowerCase().includes(iSearchText);
+              hasMatch = users[propValue].name
+                .toLowerCase()
+                .includes(iSearchText);
             } else {
               hasMatch = propValue.toLowerCase().includes(iSearchText);
             }
@@ -93,6 +74,7 @@ function App() {
 
           return hasMatch;
         });
+  }, [todos, searchText]);
 
   useEffect(() => {
     getDocs(collection(db, "todo")).then((data) => {
@@ -103,7 +85,10 @@ function App() {
 
   useEffect(() => {
     getDocs(collection(db, "users")).then((data) => {
-      const users = data.docs.reduce((obj, user) => { obj[user.id] = user.data(); return obj }, {});
+      const users = data.docs.reduce((obj, user) => {
+        obj[user.id] = user.data();
+        return obj;
+      }, {});
       setUsers(users);
     });
   }, [user]);
@@ -113,10 +98,6 @@ function App() {
     value: value,
   });
 
-  // We know there are going to be only these 4 statuses
-  // There is no need to get them dynamicaly from todos
-  const statuses = ["Open", "Working", "Overdue", "Done"];
-  const statusFilters = statuses.map(toFilterValue);
   // Tags are unknown in advance so it needs to be extracted from todos
   const tagsFilters = todos
     ? Array.from(
@@ -167,11 +148,11 @@ function App() {
   }
 
   function handleDeleteClick(id) {
-    if (confirmedBtns.has(id)) {
-      setConfirmedBtns((map) => new Map(map).set(id, true));
+    if (selectedTodos.has(id)) {
+      setSelectedTodos((map) => new Map(map).set(id, true));
       deleteTodo(id);
     } else {
-      setConfirmedBtns((map) => new Map(map).set(id, false));
+      setSelectedTodos((map) => new Map(map).set(id, false));
     }
   }
 
@@ -179,11 +160,11 @@ function App() {
     try {
       await deleteDoc(doc(db, "todo", id));
     } catch (error) {
-      setConfirmedBtns((map) => new Map(map).set(id, false));
+      setSelectedTodos((map) => new Map(map).set(id, false));
       return false;
     }
 
-    setConfirmedBtns((map) => {
+    setSelectedTodos((map) => {
       map = new Map(map);
       map.delete(id);
       return map;
@@ -198,7 +179,7 @@ function App() {
     setDeletingMany(true);
 
     const todosToDelete = new Map(
-      [...confirmedBtns].filter(([_, beingDeleted]) => !beingDeleted)
+      [...selectedTodos].filter(([_, beingDeleted]) => !beingDeleted)
     );
     const deletePromises = [...todosToDelete].map(
       ([id]) =>
@@ -213,11 +194,11 @@ function App() {
     );
 
     todosToDelete.forEach((_, id) => todosToDelete.set(id, true));
-    setConfirmedBtns(new Map(todosToDelete));
+    setSelectedTodos(new Map(todosToDelete));
 
     try {
       await Promise.all(deletePromises);
-      setConfirmedBtns(new Map());
+      setSelectedTodos(new Map());
       setDeletingMany(false);
       setTodos((todos) => todos.filter(({ id }) => !todosToDelete.has(id)));
     } catch (error) {
@@ -226,144 +207,8 @@ function App() {
   }
 
   function handleDeselectConfirmed() {
-    setConfirmedBtns(new Map());
+    setSelectedTodos(new Map());
   }
-
-  const columns = [
-    {
-      title: "Timestamp created",
-      dataIndex: "timeStamp",
-      key: "timeStamp",
-      // This is a use of Object destructuring with assigning
-      // new names(aliases) for the original property names
-      // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Operators/Destructuring_assignment#object_destructuring
-      sorter: ({ timeStamp: timeStampA }, { timeStamp: timeStampB }) =>
-        new Date(timeStampA) - new Date(timeStampB),
-    },
-    {
-      title: "Author",
-      dataIndex: "author",
-      key: "author",
-      render: (_, { author }) => {
-        // TODO
-        // need to store users in another document
-        // there is not way to access user data from its UID
-        return (
-          <Tooltip title={users[author]?.name ?? "Anonymous"} placement="top">
-            <Avatar
-              shape="circle"
-              icon={
-                !!users[author]?.photoURL ? (
-                  <img src={users[author].photoURL} alt="avatar" />
-                ) : (
-                  <UserOutlined />
-                )
-              }
-              style={{ backgroundColor: '#fff', color: '#001529' }}
-            />
-          </Tooltip>
-        )
-      }
-    },
-    {
-      title: "Task",
-      dataIndex: "title",
-      key: "title",
-      sorter: ({ title: titleA }, { title: titleB }) => {
-        if (titleA === titleB) return 0;
-        return titleA > titleB ? 1 : -1;
-      },
-    },
-    {
-      title: "Description",
-      dataIndex: "description",
-      key: "description",
-      sorter: ({ description: descA }, { description: descB }) => {
-        if (descA === descB) return 0;
-        return descA > descB ? 1 : -1;
-      },
-    },
-    {
-      title: "Due Date",
-      dataIndex: "dueDate",
-      key: "dueDate",
-      sorter: ({ dueDate: dueDateA }, { dueDate: dueDateB }, order) => {
-        // both empty
-        if ((dueDateA === dueDateB) === "") {
-          return 0;
-          // only first empty
-        } else if (dueDateA === "") {
-          return order === "ascend" ? 1 : -1;
-          // only second empty
-        } else if (dueDateB === "") {
-          return order === "ascend" ? -1 : 1;
-          // both have values
-        } else {
-          return new Date(dueDateA) - new Date(dueDateB);
-        }
-      },
-    },
-    {
-      title: "Tags",
-      dataIndex: "tags",
-      key: "tags",
-      filters: tagsFilters,
-      onFilter: (value, { tags }) => tags.includes(value),
-      render: (tags, { id }) => {
-        return (
-          <>
-            {tags.map((tag) => (
-              <Tag key={tag + id} id={tag + id}>
-                {tag.toUpperCase()}
-              </Tag>
-            ))}
-          </>
-        );
-      },
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      key: "status",
-      filters: statusFilters,
-      onFilter: (value, { status }) => status === value,
-      render: (_, { status }) => {
-        return <Tag color={statusToTagColor[status]}>{status}</Tag>;
-      },
-    },
-    {
-      title: "Actions",
-      render: (_, { id, author }) => {
-        const isAwaitingResponse =
-          confirmedBtns.has(id) && confirmedBtns.get(id);
-        const isToBeConfirmed = confirmedBtns.has(id) && !confirmedBtns.get(id);
-        const userIsAuthor = isLoggedIn && user.uid === author;
-
-        if (!userIsAuthor) return (<></>);
-
-        return (
-          <Space direction="horizontal">
-            <Tooltip title="Edit" mouseEnterDelay={0.5}>
-              <Button
-                onClick={() => handleEditClick(id)}
-                icon={<EditOutlined />}
-                disabled={!userIsAuthor}
-              ></Button>
-            </Tooltip>
-            <Tooltip title="Delete" mouseEnterDelay={0.5}>
-              <Button
-                onClick={() => handleDeleteClick(id)}
-                icon={<DeleteOutlined />}
-                loading={isAwaitingResponse}
-                danger={isToBeConfirmed}
-                disabled={!userIsAuthor}
-              ></Button>
-            </Tooltip>
-          </Space>
-        );
-      },
-    },
-  ];
 
   const createTodo = async (todo) => {
     try {
@@ -453,15 +298,15 @@ function App() {
     <Layout>
       <Header style={headerStyle}>
         <Space>
-        <Search
-          placeholder="input search text"
-          onSearch={setSearchText}
-          onChange={({ target }) => target.value === "" && setSearchText("")}
-          style={{
-            width: 400,
-            display: "block",
-          }}
-        />
+          <Search
+            placeholder="input search text"
+            onSearch={setSearchText}
+            onChange={({ target }) => target.value === "" && setSearchText("")}
+            style={{
+              width: 400,
+              display: "block",
+            }}
+          />
           {!isLoggedIn ? (
             <Popconfirm
               title="Create new todo"
@@ -470,27 +315,23 @@ function App() {
               okText="Yes"
               cancelText="No"
             >
-              <Button
-                type="default"
-                icon={<PlusOutlined />}
-                size="middle"
-              >
+              <Button type="default" icon={<PlusOutlined />} size="middle">
                 Create
               </Button>
-          </Popconfirm>
+            </Popconfirm>
           ) : (
             <Button
-                type="default"
-                icon={<PlusOutlined />}
-                size="middle"
-                onClick={handleCreateClick}
+              type="default"
+              icon={<PlusOutlined />}
+              size="middle"
+              onClick={handleCreateClick}
             >
               Create
             </Button>
           )}
         </Space>
         <Space>
-          {confirmedBtns.size ? (
+          {selectedTodos.size ? (
             <Button
               type="primary"
               icon={<DeleteOutlined />}
@@ -504,7 +345,7 @@ function App() {
           ) : (
             <></>
           )}
-          {confirmedBtns.size ? (
+          {selectedTodos.size ? (
             <Button
               type="primary"
               icon={<MinusOutlined />}
@@ -527,117 +368,36 @@ function App() {
               )
             }
             onClick={authenticateUser}
-            style={{ cursor: "pointer", backgroundColor: '#fff', color: '#001529', display: "block" }}
+            style={{
+              cursor: "pointer",
+              backgroundColor: "#fff",
+              color: "#001529",
+              display: "block",
+            }}
           />
         </Space>
       </Header>
       <Content style={contentStyle}>
-        <Table
-          columns={columns}
-          dataSource={visibleTodos}
-          rowKey={(record) => record.id}
+        <TodoTable
+          todos={visibleTodos}
+          users={users}
+          loggedInUser={user}
+          selectedTodos={selectedTodos}
+          deleteTodo={handleDeleteClick}
+          editTodo={handleEditClick}
         />
       </Content>
-      <Modal
-        open={modalOpened}
+      <TodoModal
+        type={formName}
+        title={`${formName} todo`.toUpperCase()}
+        isOpened={modalOpened}
         onCancel={handleModalCancel}
-        title="Create new todo"
-        footer={null}
-      >
-        <Space direction="vertical" align="center">
-          <Form
-            form={form}
-            fields={formFields}
-            disabled={formLoading}
-            initialValues={{
-              remember: true,
-              dateRange: [dayjs(), null],
-              status: "Open",
-            }}
-            name="create"
-            labelCol={{
-              span: 8,
-            }}
-            wrapperCol={{
-              span: 16,
-            }}
-            style={{
-              width: "100%",
-            }}
-            autoComplete="off"
-            onFinish={onFinish}
-          >
-            <Form.Item
-              label="Title"
-              name="title"
-              rules={[
-                {
-                  required: true,
-                  message: "Please input todo's title!",
-                },
-                {
-                  max: 100,
-                  message: "Maximum title length is 100 characters.",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-
-            <Form.Item
-              label="Description"
-              name="description"
-              rules={[
-                {
-                  required: true,
-                  message: "Please provide some description.",
-                },
-                {
-                  max: 1000,
-                  message: "Maximum description lenght is 1000 characters.",
-                },
-              ]}
-            >
-              <Input />
-            </Form.Item>
-
-            <Form.Item label="Due Date" name="dateRange">
-              <DatePicker.RangePicker disabled={[true, false]} />
-            </Form.Item>
-
-            <Form.Item label="Tags" name="tags">
-              <Mentions
-                placeholder="input # to mention tag"
-                prefix={["#"]}
-                options={(tagsFilters || []).map(({ value }) => ({
-                  key: value,
-                  value,
-                  label: value,
-                }))}
-              />
-            </Form.Item>
-
-            <Form.Item label="Status" name="status" required={true}>
-              <Radio.Group
-                options={
-                  formName === "create"
-                    ? ["Open", "Working"]
-                    : ["Open", "Working", "Done", "Overdue"]
-                }
-                optionType="button"
-                buttonStyle="solid"
-                size="small"
-              />
-            </Form.Item>
-
-            <Form.Item wrapperCol={{ offset: 8, span: 16 }}>
-              <Button type="primary" htmlType="submit" loading={formLoading}>
-                {formName.toUpperCase()}
-              </Button>
-            </Form.Item>
-          </Form>
-        </Space>
-      </Modal>
+        onFinish={onFinish}
+        formRef={form}
+        fields={formFields}
+        isLoading={formLoading}
+        tags={tagsFilters}
+      />
     </Layout>
   );
 }
